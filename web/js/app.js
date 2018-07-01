@@ -143,7 +143,6 @@ new Vue({
 
                 //Cmd received
                 if ('Query' in data) {
-                    console.log(data);
                     app.cmdReceived(data.ConnId, data.CmdId, data.Database, data.Query, data.Parameters, data.Executable);
                     return;
                 }

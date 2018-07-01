@@ -9,16 +9,36 @@ import (
 	"strconv"
 )
 
-var errInvalidPacketLength = errors.New("Protocol: Invalid packet length")
-var errInvalidPacketType = errors.New("Protocol: Invalid packet type")
-var errFieldTypeNotImplementedYet = errors.New("Protocol: Required field type not implemented yet")
+var errInvalidPacketLength = errors.New("protocol: Invalid packet length")
+var errInvalidPacketType = errors.New("protocol: Invalid packet type")
+var errFieldTypeNotImplementedYet = errors.New("protocol: Required field type not implemented yet")
+
+func GetPacketType(packet []byte) byte {
+	return packet[4]
+}
 
 type ErrResponse struct {
 	Message string
 }
 
-func DecodeErrResponse(packet []byte) (*ErrResponse, error) {
-	return nil, nil
+// DecodeOkResponse decodes ERR_Packet from server.
+// Part of basic packet structure shown below.
+//
+// int<3> PacketLength
+// int<1> PacketNumber
+// int<1> PacketType (0xFF)
+// if clientCapabilities & clientProtocol41
+// {
+//		string<1> SqlStateMarker (#)
+//		string<5> SqlState
+// }
+// string<EOF> ErrorMessage
+func DecodeErrResponse(packet []byte) (string, error) {
+	if err := checkPacketLength(8, packet); err != nil {
+		return "", err
+	}
+
+	return string(packet[7:]), nil
 }
 
 // OkResponse represents packet sent from the server to the client to signal successful completion of a command
@@ -41,7 +61,7 @@ type OkResponse struct {
 func DecodeOkResponse(packet []byte) (*OkResponse, error) {
 
 	// Min packet length = header(4 bytes) + PacketType(1 byte)
-	if err := CheckPacketLength(5, packet); err != nil {
+	if err := checkPacketLength(5, packet); err != nil {
 		return nil, err
 	}
 
@@ -342,7 +362,7 @@ func DecodeComStmtExecuteRequest(packet []byte, paramsCount uint16) (*ComStmtExe
 
 	// Min packet length = header(4 bytes) + command(1 byte) + statementID(4 bytes)
 	// + flags(1 byte) + iteration count(4 bytes)
-	if err := CheckPacketLength(14, packet); err != nil {
+	if err := checkPacketLength(14, packet); err != nil {
 		return nil, err
 	}
 
@@ -482,21 +502,6 @@ func DecodeFieldTypeDouble(r *bytes.Reader) (string, error) {
 	return strconv.FormatFloat(doubleValue, 'f', doubleDecodePrecision, 64), nil
 }
 
-// GetLenEncodedIntegerSize returns bytes count for length encoded integer
-// determined by it's 1st byte
-func GetLenEncodedIntegerSize(firstByte byte) byte  {
-	switch firstByte {
-	case 0xfc:
-		return 2
-	case 0xfd:
-		return 3
-	case 0xfe:
-		return 8
-	default:
-		return 1
-	}
-}
-
 // ReadLenEncodedInteger returns parsed length-encoded integer and it's offset.
 // See https://mariadb.com/kb/en/mariadb/protocol-data-types/#length-encoded-integers
 func ReadLenEncodedInteger(r *bytes.Reader) (value uint64, offset uint64) {
@@ -555,7 +560,7 @@ func ReadLenEncodedString(r *bytes.Reader) (string, uint64, error) {
 	strLen, _ := ReadLenEncodedInteger(r)
 
 	strBuf := make([]byte, strLen)
-	if _, err := r.Read(strBuf); err != nil{
+	if _, err := r.Read(strBuf); err != nil {
 		return "", 0, err
 	}
 
@@ -593,8 +598,8 @@ func SkipPacketHeader(r *bytes.Reader) error {
 	return nil
 }
 
-// CheckPacketLength checks if packet length meets expected value
-func CheckPacketLength(expected int, packet []byte) error {
+// checkPacketLength checks if packet length meets expected value
+func checkPacketLength(expected int, packet []byte) error {
 	if len(packet) < expected {
 		return errInvalidPacketLength
 	}
